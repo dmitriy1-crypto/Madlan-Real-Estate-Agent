@@ -21,7 +21,7 @@ IMAGE_ONLY = True
 PRICE_ONLY = True
 
 # GraphQL endpoint (из кода страницы)
-API_URL = "https://www.madlan.co.il/api3"
+API_URL = "https://www.madlan.co.il/api2"
 
 SENT_IDS_FILE = "sent_ids.json"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -33,7 +33,7 @@ def tg_send_message(text):
     payload = {"chat_id": CHAT_ID, "text": text, "disable_web_page_preview": True}
     try:
         requests.post(url, json=payload, timeout=10)
-        logger.info("Сообщение отправлено: %s", text[:100])
+        logger.info("Сообщение отправлено")
     except Exception as e:
         logger.error("Ошибка отправки в Telegram: %s", e)
 
@@ -43,14 +43,6 @@ def fetch_madlan_listings():
     query searchPoiV2($input: SearchPoiInput!) {
       searchPoiV2(input: $input) {
         total
-        cursor {
-          bulletinsOffset
-          projectsOffset
-          seenProjects
-          __typename
-        }
-        totalNearby
-        lastInGeometryId
         poi {
           id
           type
@@ -62,11 +54,9 @@ def fetch_madlan_listings():
           buildingYear
           generalCondition
           buildingClass
-          ... on Bulletin {
-            images {
-              imageUrl
-              __typename
-            }
+          images {
+            imageUrl
+            __typename
           }
           __typename
         }
@@ -132,8 +122,6 @@ def build_message(item):
     rooms = item.get("beds", "—")
     area = item.get("area", "—")
     floor = item.get("floor", "—")
-    # Ссылка на объявление – обычно можно сформировать из id и адреса
-    # Пример: https://www.madlan.co.il/item/{id}
     url = f"https://www.madlan.co.il/item/{listing_id}"
 
     msg = f"{address}\n"
