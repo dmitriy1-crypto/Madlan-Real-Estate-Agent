@@ -53,7 +53,7 @@ def fetch_madlan_listings():
         logger.info("Размер ответа: %d байт", len(resp.text))
         # Сохраняем первые 2000 символов ответа для диагностики
         logger.info("Первые 2000 символов ответа:\n%s", resp.text[:2000])
-        
+
         # Ищем JSON с данными
         start_str = 'window.__SSR_HYDRATED_CONTEXT__='
         start = resp.text.find(start_str)
@@ -68,7 +68,7 @@ def fetch_madlan_listings():
         json_str = resp.text[start:end].strip()
         logger.info("Извлечён JSON длиной %d символов", len(json_str))
         data = json.loads(json_str)
-        
+
         # Извлекаем объявления
         listings = []
         if "reduxInitialState" in data:
