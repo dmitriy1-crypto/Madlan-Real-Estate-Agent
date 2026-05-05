@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import time
 import requests
 
 # ---------- НАСТРОЙКИ ----------
@@ -8,7 +9,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
 CHAT_ID = os.environ.get("CHAT_ID", "").strip()
 
 # ---------- ФИЛЬТРЫ ПОИСКА ----------
-AREA = "חיפה"
+AREA = "5"  # Код Хайфы
 MAX_PRICE = 1_500_000
 MIN_ROOMS = 3
 MAX_ROOMS = 5
@@ -34,8 +35,10 @@ def fetch_madlan_listings():
     """
     GET-запрос к странице поиска Madlan, извлечение JSON из HTML.
     """
+    # Правильный URL с параметрами города и фильтров
     url = "https://www.madlan.co.il/for-sale/%D7%97%D7%99%D7%A4%D7%94-%D7%99%D7%A9%D7%A8%D7%90%D7%9C"
     params = {
+        "area": AREA,
         "priceTo": MAX_PRICE,
         "roomsFrom": MIN_ROOMS,
         "roomsTo": MAX_ROOMS,
@@ -45,7 +48,7 @@ def fetch_madlan_listings():
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Referer": "https://www.madlan.co.il/",
     }
-    logger.info("Отправляю GET-запрос к %s", url)
+    logger.info("Отправляю GET-запрос к %s с параметрами %s", url, params)
     try:
         resp = requests.get(url, params=params, headers=headers, timeout=15)
         resp.raise_for_status()
@@ -59,6 +62,8 @@ def fetch_madlan_listings():
         start = resp.text.find(start_str)
         if start == -1:
             logger.error("Не найден JSON с данными на странице")
+            # Логируем весь ответ, чтобы понять, что пришло
+            logger.info("Полный ответ сервера:\n%s", resp.text)
             return []
         start += len(start_str)
         end = resp.text.find('</script>', start)
@@ -127,6 +132,7 @@ def main():
         tg_send_message(msg)
         sent_ids.add(lid)
         new_found += 1
+        time.sleep(1.2)
 
     save_sent_ids(sent_ids)
     logger.info("Отправлено %d новых объявлений", new_found)
