@@ -152,7 +152,9 @@ def main():
         logger.info('Сейчас неактивное время, завершаю работу.')
         return
 
+    # ★ ОБЯЗАТЕЛЬНОЕ ПРИВЕТСТВИЕ
     tg_send_message('🔍 Начинаю поиск квартир на Madlan...')
+
     sent_ids = load_sent_ids()
     items = fetch_madlan_listings()
 
@@ -186,6 +188,9 @@ def main():
         new_found += 1
         logger.info(f'Отправлено объявление: {lid}')
         time.sleep(1.2)
+
+    if new_found == 0:
+        tg_send_message('ℹ️ На данный момент новых квартир нет.')
 
     save_sent_ids(sent_ids)
     logger.info(f'===== Завершено. Отправлено {new_found} новых объявлений. =====')
