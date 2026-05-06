@@ -1,0 +1,12 @@
+{
+  "area": "5",
+  "max_price": 1500000,
+  "min_rooms": 3,
+  "max_rooms": 5,
+  "deal_type": "unitBuy",
+  "start_hour": 7,
+  "end_hour": 22,
+  "comments": {
+    "note": "Для параметра `area` допустимо только одно значение (код города). Остальные поля можно менять."
+  }
+}
