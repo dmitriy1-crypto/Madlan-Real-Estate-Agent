@@ -213,9 +213,9 @@ def main():
         logger.error('SCRAPINGBEE_KEY не задан.')
         return
 
-    if not is_active_hours():
-        logger.info('Сейчас неактивное время, завершаю работу.')
-        return
+   # if not is_active_hours():
+    #    logger.info('Сейчас неактивное время, завершаю работу.')
+    #    return
 
     tg_send_message('🔍 Начинаю поиск квартир на Madlan...')
     sent_ids = load_sent_ids()
