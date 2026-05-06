@@ -29,7 +29,27 @@ def is_active_hours():
     logger.info(f'Текущее время в Израиле: {now.strftime("%H:%M")}. Активность с {START_HOUR} до {END_HOUR}.')
     return START_HOUR <= now.hour < END_HOUR
 
+def tg_send_photo(photo_url, caption):
+    """Отправка фото с подписью в Telegram"""
+    if not TELEGRAM_TOKEN or not CHAT_ID:
+        logger.warning('Telegram не настроен – пропускаю отправку фото')
+        return
+    url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto'
+    payload = {
+        'chat_id': CHAT_ID,
+        'photo': photo_url,
+        'caption': caption,
+        'parse_mode': 'HTML'
+    }
+    try:
+        resp = requests.post(url, json=payload, timeout=15)
+        resp.raise_for_status()
+        logger.info('Фото отправлено в Telegram')
+    except Exception as e:
+        logger.error(f'Ошибка отправки фото: {e}')
+
 def tg_send_message(text):
+    """Отправка текстового сообщения (используется редко, когда нет фото)"""
     if not TELEGRAM_TOKEN or not CHAT_ID:
         logger.warning('Telegram не настроен – пропускаю отправку')
         return
@@ -123,21 +143,34 @@ def format_price(price):
         return f'{price:,.0f}'.replace(',', ' ')
     return str(price)
 
-def build_message(item):
+def build_message_and_photo(item):
     listing_id = item.get('id', '')
     address = item.get('address', 'Адрес не указан')
     full_url = f'https://www.madlan.co.il/listings/{listing_id}'
-    url_html = f'<a href="{full_url}">Посмотреть</a>'
     price = format_price(item.get('price', 0))
     rooms = item.get('beds', '—')
     area = item.get('area', '—')
     floor = item.get('floor', '—')
 
-    msg = f'{address}\n'
-    msg += f'Цена: {price} ₪\n'
-    msg += f'Комнат: {rooms} | Площадь: {area} м² | Этаж: {floor}\n'
-    msg += url_html
-    return msg, listing_id
+    caption = f'<b>{address}</b>\n' \
+              f'💰 Цена: {price} ₪\n' \
+              f'🛏 Комнат: {rooms} | 📐 Площадь: {area} м² | 🏢 Этаж: {floor}\n' \
+              f'<a href="{full_url}">🔗 Посмотреть объявление</a>'
+
+    # Получаем первое фото
+    images = item.get('images', [])
+    photo_url = None
+    if images:
+        img = images[0].get('imageUrl', '')
+        if img:
+            if img.startswith('bulletins/') or img.startswith('/bulletins/'):
+                photo_url = f'https://images2.madlan.co.il/{img}'
+            elif img.startswith('http'):
+                photo_url = img
+            else:
+                photo_url = f'https://images2.madlan.co.il/{img}'
+
+    return caption, photo_url, listing_id
 
 def main():
     logger.info('===== Запуск Madlan-бота =====')
@@ -152,13 +185,10 @@ def main():
         logger.info('Сейчас неактивное время, завершаю работу.')
         return
 
-    # ★ ОБЯЗАТЕЛЬНОЕ ПРИВЕТСТВИЕ
     tg_send_message('🔍 Начинаю поиск квартир на Madlan...')
-
     sent_ids = load_sent_ids()
     items = fetch_madlan_listings()
 
-    # Фильтрация
     filtered = []
     for item in items:
         price = item.get('price')
@@ -166,12 +196,10 @@ def main():
         if price is None or price == 0:
             continue
         if price > MAX_PRICE:
-            logger.info(f'Отфильтровано по цене: {price} > {MAX_PRICE}')
             continue
         if beds is None:
             continue
         if beds < MIN_ROOMS or beds > MAX_ROOMS:
-            logger.info(f'Отфильтровано по комнатам: {beds}')
             continue
         filtered.append(item)
 
@@ -179,15 +207,16 @@ def main():
 
     new_found = 0
     for item in filtered:
-        msg, lid = build_message(item)
+        caption, photo_url, lid = build_message_and_photo(item)
         if lid in sent_ids:
-            logger.info(f'Объявление {lid} уже отправлялось, пропускаю.')
             continue
-        tg_send_message(msg)
+        if photo_url:
+            tg_send_photo(photo_url, caption)
+        else:
+            tg_send_message(caption)
         sent_ids.add(lid)
         new_found += 1
-        logger.info(f'Отправлено объявление: {lid}')
-        time.sleep(1.2)
+        time.sleep(1.5)
 
     if new_found == 0:
         tg_send_message('ℹ️ На данный момент новых квартир нет.')
