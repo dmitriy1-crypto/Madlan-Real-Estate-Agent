@@ -4,7 +4,7 @@ import logging
 import time
 import requests
 from datetime import datetime, timezone, timedelta
-#if not is_active_hours
+
 # ---------- НАСТРОЙКИ ----------
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN', '').strip()
 CHAT_ID = os.environ.get('CHAT_ID', '').strip()
@@ -26,11 +26,12 @@ logger = logging.getLogger(__name__)
 def is_active_hours():
     israel_tz = timezone(timedelta(hours=3))
     now = datetime.now(israel_tz)
+    logger.info(f'Текущее время в Израиле: {now.strftime("%H:%M")}. Активность с {START_HOUR} до {END_HOUR}.')
     return START_HOUR <= now.hour < END_HOUR
 
 def tg_send_message(text):
     if not TELEGRAM_TOKEN or not CHAT_ID:
-        logger.info('Telegram не настроен – пропускаю отправку')
+        logger.warning('Telegram не настроен – пропускаю отправку')
         return
     url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
     payload = {
@@ -40,10 +41,11 @@ def tg_send_message(text):
         'disable_web_page_preview': True
     }
     try:
-        requests.post(url, json=payload, timeout=10)
+        resp = requests.post(url, json=payload, timeout=10)
+        resp.raise_for_status()
         logger.info('Сообщение отправлено в Telegram')
     except Exception as e:
-        logger.error('Ошибка отправки в Telegram: %s', e)
+        logger.error(f'Ошибка отправки в Telegram: {e}')
 
 def fetch_madlan_listings():
     url = 'https://www.madlan.co.il/for-sale/%D7%97%D7%99%D7%A4%D7%94-%D7%99%D7%A9%D7%A8%D7%90%D7%9C'
@@ -53,36 +55,38 @@ def fetch_madlan_listings():
         'roomsFrom': MIN_ROOMS,
         'roomsTo': MAX_ROOMS,
     }
-    # Используем ScrapingBee API для обхода Cloudflare
+    logger.info(f'Начинаю запрос к Madlan через ScrapingBee. Параметры: {params}')
     api_url = 'https://app.scrapingbee.com/api/v1/'
     query = {
         'api_key': SCRAPINGBEE_KEY,
         'url': f'{url}?{"&".join(f"{k}={v}" for k, v in params.items())}',
-        'render_js': False,  # JS не нужен, данные приходят в HTML
-        'premium_proxy': True,  # Используем премиум-прокси (резидентные IP)
-        'country_code': 'il',  # Израильские IP, чтобы избежать гео-блокировок
+        'render_js': False,
+        'premium_proxy': True,
+        'country_code': 'il',
     }
-    logger.info('Запрос через ScrapingBee к %s', url)
     try:
         resp = requests.get(api_url, params=query, timeout=30)
         resp.raise_for_status()
+        logger.info(f'Ответ от ScrapingBee получен. Размер: {len(resp.text)} байт.')
 
         start_marker = 'window.__SSR_HYDRATED_CONTEXT__='
         start = resp.text.find(start_marker)
         if start == -1:
-            logger.error('Не найден JSON')
+            logger.error('Не найден JSON с данными в ответе.')
             return []
         start += len(start_marker)
         end = resp.text.find('</script>', start)
         if end == -1:
-            logger.error('Не найден конец JSON')
+            logger.error('Не найден конец JSON блока.')
             return []
         json_str = resp.text[start:end].strip()
+        logger.info(f'JSON извлечён. Длина: {len(json_str)} символов.')
 
         json_str = json_str.replace(':undefined', ':null')
         json_str = json_str.replace(': undefined', ': null')
 
         data = json.loads(json_str)
+        logger.info('JSON успешно распарсен.')
 
         redux = data.get('reduxInitialState', {})
         domain = redux.get('domainData', {})
@@ -90,24 +94,29 @@ def fetch_madlan_listings():
         search_data = search_list.get('data', {})
         poi_data = search_data.get('searchPoiV2', {})
         items = poi_data.get('poi', [])
+        logger.info(f'Получено {len(items)} элементов poi.')
 
         listings = [it for it in items if it.get('type') == 'bulletin']
-        logger.info('Получено %d частных объявлений', len(listings))
+        logger.info(f'Найдено {len(listings)} частных объявлений.')
         return listings
     except Exception as e:
-        logger.error('Ошибка при запросе к Madlan: %s', e)
+        logger.error(f'Ошибка при запросе к Madlan: {e}')
         return []
 
 def load_sent_ids():
     try:
         with open(SENT_IDS_FILE, 'r') as f:
-            return set(json.load(f))
+            ids = set(json.load(f))
+            logger.info(f'Загружено {len(ids)} отправленных ID.')
+            return ids
     except (FileNotFoundError, json.JSONDecodeError):
+        logger.info('Файл sent_ids не найден, начинаю с чистого листа.')
         return set()
 
 def save_sent_ids(ids_set):
     with open(SENT_IDS_FILE, 'w') as f:
         json.dump(list(ids_set), f)
+    logger.info(f'Сохранено {len(ids_set)} ID в кеш.')
 
 def format_price(price):
     if isinstance(price, (int, float)):
@@ -131,21 +140,23 @@ def build_message(item):
     return msg, listing_id
 
 def main():
+    logger.info('===== Запуск Madlan-бота =====')
     if not TELEGRAM_TOKEN or not CHAT_ID:
         logger.error('TELEGRAM_TOKEN или CHAT_ID не заданы.')
         return
     if not SCRAPINGBEE_KEY:
-        logger.error('SCRAPINGBEE_KEY не задан. Получите ключ на https://www.scrapingbee.com')
+        logger.error('SCRAPINGBEE_KEY не задан.')
         return
 
-    # Для теста можно временно отключить проверку, закомментировав следующие три строки:
-    # if not is_active_hours():
-    #     logger.info('Сейчас неактивное время (по Израилю), завершаю работу')
-    #     return
+    if not is_active_hours():
+        logger.info('Сейчас неактивное время, завершаю работу.')
+        return
 
+    tg_send_message('🔍 Начинаю поиск квартир на Madlan...')
     sent_ids = load_sent_ids()
     items = fetch_madlan_listings()
 
+    # Фильтрация
     filtered = []
     for item in items:
         price = item.get('price')
@@ -153,30 +164,31 @@ def main():
         if price is None or price == 0:
             continue
         if price > MAX_PRICE:
+            logger.info(f'Отфильтровано по цене: {price} > {MAX_PRICE}')
             continue
         if beds is None:
             continue
         if beds < MIN_ROOMS or beds > MAX_ROOMS:
+            logger.info(f'Отфильтровано по комнатам: {beds}')
             continue
         filtered.append(item)
 
-    logger.info('После фильтрации осталось %d объявлений', len(filtered))
+    logger.info(f'После фильтрации осталось {len(filtered)} объявлений.')
 
     new_found = 0
     for item in filtered:
         msg, lid = build_message(item)
-        if not lid or lid in sent_ids:
+        if lid in sent_ids:
+            logger.info(f'Объявление {lid} уже отправлялось, пропускаю.')
             continue
         tg_send_message(msg)
         sent_ids.add(lid)
         new_found += 1
+        logger.info(f'Отправлено объявление: {lid}')
         time.sleep(1.2)
 
-    if new_found > 0:
-        save_sent_ids(sent_ids)
-        logger.info('Отправлено %d новых объявлений', new_found)
-    else:
-        logger.info('Новых объявлений нет')
+    save_sent_ids(sent_ids)
+    logger.info(f'===== Завершено. Отправлено {new_found} новых объявлений. =====')
 
 if __name__ == '__main__':
     main()
