@@ -4,7 +4,7 @@ import logging
 import time
 import requests
 from datetime import datetime, timezone, timedelta
-
+№if not is_active_hours
 # ---------- НАСТРОЙКИ ----------
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN', '').strip()
 CHAT_ID = os.environ.get('CHAT_ID', '').strip()
