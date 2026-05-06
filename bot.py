@@ -4,12 +4,15 @@ import logging
 import time
 import requests
 from datetime import datetime, timezone, timedelta
-from html import escape
 
 # ---------- НАСТРОЙКИ ----------
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN', '').strip()
-CHAT_ID = os.environ.get('CHAT_ID', '').strip()
 SCRAPINGBEE_KEY = os.environ.get('SCRAPINGBEE_KEY', '').strip()
+
+# Поддержка нескольких чатов. Задаётся в секретах GitHub Actions как CHAT_IDS
+# (или CHAT_ID для одного пользователя)
+CHAT_IDS_RAW = os.environ.get('CHAT_IDS', os.environ.get('CHAT_ID', '')).strip()
+CHAT_IDS = [cid.strip() for cid in CHAT_IDS_RAW.split(',') if cid.strip()] if CHAT_IDS_RAW else []
 
 # ---------- ЗАГРУЗКА КОНФИГУРАЦИИ ----------
 DEFAULT_CONFIG = {
@@ -56,13 +59,13 @@ def is_active_hours():
     logger.info(f'Текущее время в Израиле: {now.strftime("%H:%M")}. Активность с {START_HOUR} до {END_HOUR}.')
     return START_HOUR <= now.hour < END_HOUR
 
-def tg_send_message(text):
-    if not TELEGRAM_TOKEN or not CHAT_ID:
+def tg_send_message(chat_id, text):
+    if not TELEGRAM_TOKEN:
         logger.warning('Telegram не настроен – пропускаю отправку')
         return False
     url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
     payload = {
-        'chat_id': CHAT_ID,
+        'chat_id': chat_id,
         'text': text,
         'parse_mode': 'HTML',
         'disable_web_page_preview': True
@@ -70,20 +73,19 @@ def tg_send_message(text):
     try:
         resp = requests.post(url, json=payload, timeout=10)
         resp.raise_for_status()
-        logger.info('Сообщение отправлено в Telegram')
+        logger.info(f'Сообщение отправлено в Telegram ({chat_id})')
         return True
     except Exception as e:
-        logger.error(f'Ошибка отправки в Telegram: {e}')
+        logger.error(f'Ошибка отправки в Telegram ({chat_id}): {e}')
         return False
 
-def tg_send_photo(photo_url, caption):
-    """Отправка фото с подписью, возвращает True при успехе"""
-    if not TELEGRAM_TOKEN or not CHAT_ID:
+def tg_send_photo(chat_id, photo_url, caption):
+    if not TELEGRAM_TOKEN:
         logger.warning('Telegram не настроен – пропускаю отправку фото')
         return False
     url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto'
     payload = {
-        'chat_id': CHAT_ID,
+        'chat_id': chat_id,
         'photo': photo_url,
         'caption': caption,
         'parse_mode': 'HTML'
@@ -91,10 +93,10 @@ def tg_send_photo(photo_url, caption):
     try:
         resp = requests.post(url, json=payload, timeout=15)
         resp.raise_for_status()
-        logger.info('Фото отправлено в Telegram')
+        logger.info(f'Фото отправлено в Telegram ({chat_id})')
         return True
     except Exception as e:
-        logger.error(f'Ошибка отправки фото ({photo_url[:60]}): {e}')
+        logger.error(f'Ошибка отправки фото ({chat_id}): {e}')
         return False
 
 def fetch_madlan_listings():
@@ -205,18 +207,22 @@ def build_message_and_photo(item):
 
 def main():
     logger.info('===== Запуск Madlan-бота =====')
-    if not TELEGRAM_TOKEN or not CHAT_ID:
-        logger.error('TELEGRAM_TOKEN или CHAT_ID не заданы.')
+    if not TELEGRAM_TOKEN or not CHAT_IDS:
+        logger.error('TELEGRAM_TOKEN или CHAT_IDS не заданы.')
         return
     if not SCRAPINGBEE_KEY:
         logger.error('SCRAPINGBEE_KEY не задан.')
         return
 
-   # if not is_active_hours():
-    #    logger.info('Сейчас неактивное время, завершаю работу.')
-    #    return
+    # Для теста можно временно отключить проверку, закомментировав следующие три строки:
+    # if not is_active_hours():
+    #     logger.info('Сейчас неактивное время, завершаю работу.')
+    #     return
 
-    tg_send_message('🔍 Начинаю поиск квартир на Madlan...')
+    # Приветствие всем подписчикам
+    for cid in CHAT_IDS:
+        tg_send_message(cid, '🔍 Начинаю поиск квартир на Madlan...')
+
     sent_ids = load_sent_ids()
     items = fetch_madlan_listings()
 
@@ -247,10 +253,13 @@ def main():
                 continue
 
             sent = False
-            if photo_url:
-                sent = tg_send_photo(photo_url, caption)
-            if not sent:
-                sent = tg_send_message(caption)
+            for cid in CHAT_IDS:
+                if photo_url:
+                    if tg_send_photo(cid, photo_url, caption):
+                        sent = True
+                else:
+                    if tg_send_message(cid, caption):
+                        sent = True
 
             if sent:
                 sent_ids.add(lid)
@@ -266,13 +275,14 @@ def main():
     if success_send > 0:
         save_sent_ids(sent_ids)
 
-    # Итоговый отчёт
+    # Итоговый отчёт всем подписчикам
     report = f'📊 <b>Отчёт Madlan-бота</b>\n' \
              f'Найдено: {len(items)}\n' \
              f'После фильтров: {len(filtered)}\n' \
              f'Отправлено: {success_send}\n' \
              f'Ошибок: {error_send}'
-    tg_send_message(report)
+    for cid in CHAT_IDS:
+        tg_send_message(cid, report)
 
     logger.info(f'===== Завершено. Отправлено {success_send} новых объявлений. =====')
 
