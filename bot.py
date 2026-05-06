@@ -175,12 +175,12 @@ def format_price(price):
 
 def build_message_and_photo(item):
     listing_id = item.get('id', '')
-    address = escape(item.get('address', 'Адрес не указан'))
+    address = item.get('address', 'Адрес не указан')
     full_url = f'https://www.madlan.co.il/listings/{listing_id}'
     price = format_price(item.get('price', 0))
-    rooms = escape(str(item.get('beds', '—')))
-    area = escape(str(item.get('area', '—')))
-    floor = escape(str(item.get('floor', '—')))
+    rooms = item.get('beds', '—')
+    area = item.get('area', '—')
+    floor = item.get('floor', '—')
 
     caption = f'<b>{address}</b>\n' \
               f'💰 Цена: {price} ₪\n' \
@@ -193,7 +193,6 @@ def build_message_and_photo(item):
     if images:
         img = images[0].get('imageUrl', '')
         if img:
-            # Убираем возможный начальный слеш, чтобы избежать двойных слешей
             img = img.lstrip('/')
             if img.startswith('bulletins/') or img.startswith('/bulletins/'):
                 photo_url = f'https://images2.madlan.co.il/{img}'
