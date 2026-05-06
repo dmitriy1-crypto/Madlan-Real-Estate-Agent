@@ -10,14 +10,40 @@ TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN', '').strip()
 CHAT_ID = os.environ.get('CHAT_ID', '').strip()
 SCRAPINGBEE_KEY = os.environ.get('SCRAPINGBEE_KEY', '').strip()
 
-# ---------- ФИЛЬТРЫ ПОИСКА ----------
-AREA = '5'           # Хайфа
-MAX_PRICE = 1_500_000
-MIN_ROOMS = 3
-MAX_ROOMS = 5
+# ---------- ЗАГРУЗКА КОНФИГУРАЦИИ ----------
+DEFAULT_CONFIG = {
+    "area": "5",
+    "max_price": 1_500_000,
+    "min_rooms": 3,
+    "max_rooms": 5,
+    "deal_type": "unitBuy",
+    "start_hour": 7,
+    "end_hour": 22
+}
 
-START_HOUR = 7
-END_HOUR = 22
+def load_config():
+    try:
+        with open('config.json', 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        # Удаляем комментарии и другие не-параметры
+        params = {k: v for k, v in config.items() if k in DEFAULT_CONFIG}
+        # Проверяем, что параметры, ожидающие одно значение, не являются списками
+        for single_param in ['area', 'max_price', 'min_rooms', 'max_rooms', 'deal_type']:
+            if isinstance(params.get(single_param), list):
+                raise ValueError(f"Параметр {single_param} должен быть одним значением, а не списком")
+        return params
+    except Exception as e:
+        logging.warning(f'Ошибка загрузки config.json, используются значения по умолчанию: {e}')
+        return DEFAULT_CONFIG
+
+CONFIG = load_config()
+AREA = CONFIG.get('area', DEFAULT_CONFIG['area'])
+MAX_PRICE = CONFIG.get('max_price', DEFAULT_CONFIG['max_price'])
+MIN_ROOMS = CONFIG.get('min_rooms', DEFAULT_CONFIG['min_rooms'])
+MAX_ROOMS = CONFIG.get('max_rooms', DEFAULT_CONFIG['max_rooms'])
+DEAL_TYPE = CONFIG.get('deal_type', DEFAULT_CONFIG['deal_type'])
+START_HOUR = CONFIG.get('start_hour', DEFAULT_CONFIG['start_hour'])
+END_HOUR = CONFIG.get('end_hour', DEFAULT_CONFIG['end_hour'])
 
 SENT_IDS_FILE = 'sent_ids.json'
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -33,7 +59,7 @@ def tg_send_photo(photo_url, caption):
     """Отправка фото с подписью в Telegram"""
     if not TELEGRAM_TOKEN or not CHAT_ID:
         logger.warning('Telegram не настроен – пропускаю отправку фото')
-        return
+        return False
     url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto'
     payload = {
         'chat_id': CHAT_ID,
@@ -45,11 +71,13 @@ def tg_send_photo(photo_url, caption):
         resp = requests.post(url, json=payload, timeout=15)
         resp.raise_for_status()
         logger.info('Фото отправлено в Telegram')
+        return True
     except Exception as e:
-        logger.error(f'Ошибка отправки фото: {e}')
+        logger.error(f'Ошибка отправки фото ({photo_url[:50]}...): {e}')
+        return False
 
 def tg_send_message(text):
-    """Отправка текстового сообщения (используется редко, когда нет фото)"""
+    """Отправка текстового сообщения (запасной вариант, если фото нет)"""
     if not TELEGRAM_TOKEN or not CHAT_ID:
         logger.warning('Telegram не настроен – пропускаю отправку')
         return
@@ -154,10 +182,10 @@ def build_message_and_photo(item):
 
     caption = f'<b>{address}</b>\n' \
               f'💰 Цена: {price} ₪\n' \
-              f'🛏 Комнат: {rooms} | 📐 Площадь: {area} м² | 🏢 Этаж: {floor}\n' \
-              f'<a href="{full_url}">🔗 Посмотреть объявление</a>'
+              f'Комнат: {rooms} | Площадь: {area} м² | Этаж: {floor}\n' \
+              f'<a href="{full_url}">Посмотреть объявление</a>'
 
-    # Получаем первое фото
+    # Собираем первое фото
     images = item.get('images', [])
     photo_url = None
     if images:
@@ -168,7 +196,8 @@ def build_message_and_photo(item):
             elif img.startswith('http'):
                 photo_url = img
             else:
-                photo_url = f'https://images2.madlan.co.il/{img}'
+                # Пытаемся собрать полный URL
+                photo_url = f'https://images2.madlan.co.il/{img}' if not img.startswith('http') else img
 
     return caption, photo_url, listing_id
 
@@ -210,10 +239,16 @@ def main():
         caption, photo_url, lid = build_message_and_photo(item)
         if lid in sent_ids:
             continue
+
+        # Пытаемся отправить фото
         if photo_url:
-            tg_send_photo(photo_url, caption)
+            success = tg_send_photo(photo_url, caption)
+            if not success:
+                # Если фото не отправилось, отправляем просто текст
+                tg_send_message(caption)
         else:
             tg_send_message(caption)
+
         sent_ids.add(lid)
         new_found += 1
         time.sleep(1.5)
