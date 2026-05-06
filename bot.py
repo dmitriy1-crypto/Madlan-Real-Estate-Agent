@@ -4,6 +4,7 @@ import logging
 import time
 import requests
 from datetime import datetime, timezone, timedelta
+from html import escape
 
 # ---------- НАСТРОЙКИ ----------
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN', '').strip()
@@ -25,7 +26,7 @@ def load_config():
     try:
         with open('config.json', 'r', encoding='utf-8') as f:
             config = json.load(f)
-        # Удаляем комментарии и другие не-параметры
+        # Извлекаем только известные параметры
         params = {k: v for k, v in config.items() if k in DEFAULT_CONFIG}
         # Проверяем, что параметры, ожидающие одно значение, не являются списками
         for single_param in ['area', 'max_price', 'min_rooms', 'max_rooms', 'deal_type']:
@@ -55,8 +56,28 @@ def is_active_hours():
     logger.info(f'Текущее время в Израиле: {now.strftime("%H:%M")}. Активность с {START_HOUR} до {END_HOUR}.')
     return START_HOUR <= now.hour < END_HOUR
 
+def tg_send_message(text):
+    if not TELEGRAM_TOKEN or not CHAT_ID:
+        logger.warning('Telegram не настроен – пропускаю отправку')
+        return False
+    url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
+    payload = {
+        'chat_id': CHAT_ID,
+        'text': text,
+        'parse_mode': 'HTML',
+        'disable_web_page_preview': True
+    }
+    try:
+        resp = requests.post(url, json=payload, timeout=10)
+        resp.raise_for_status()
+        logger.info('Сообщение отправлено в Telegram')
+        return True
+    except Exception as e:
+        logger.error(f'Ошибка отправки в Telegram: {e}')
+        return False
+
 def tg_send_photo(photo_url, caption):
-    """Отправка фото с подписью в Telegram"""
+    """Отправка фото с подписью, возвращает True при успехе"""
     if not TELEGRAM_TOKEN or not CHAT_ID:
         logger.warning('Telegram не настроен – пропускаю отправку фото')
         return False
@@ -73,27 +94,8 @@ def tg_send_photo(photo_url, caption):
         logger.info('Фото отправлено в Telegram')
         return True
     except Exception as e:
-        logger.error(f'Ошибка отправки фото ({photo_url[:50]}...): {e}')
+        logger.error(f'Ошибка отправки фото ({photo_url[:60]}): {e}')
         return False
-
-def tg_send_message(text):
-    """Отправка текстового сообщения (запасной вариант, если фото нет)"""
-    if not TELEGRAM_TOKEN or not CHAT_ID:
-        logger.warning('Telegram не настроен – пропускаю отправку')
-        return
-    url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
-    payload = {
-        'chat_id': CHAT_ID,
-        'text': text,
-        'parse_mode': 'HTML',
-        'disable_web_page_preview': True
-    }
-    try:
-        resp = requests.post(url, json=payload, timeout=10)
-        resp.raise_for_status()
-        logger.info('Сообщение отправлено в Telegram')
-    except Exception as e:
-        logger.error(f'Ошибка отправки в Telegram: {e}')
 
 def fetch_madlan_listings():
     url = 'https://www.madlan.co.il/for-sale/%D7%97%D7%99%D7%A4%D7%94-%D7%99%D7%A9%D7%A8%D7%90%D7%9C'
@@ -173,12 +175,12 @@ def format_price(price):
 
 def build_message_and_photo(item):
     listing_id = item.get('id', '')
-    address = item.get('address', 'Адрес не указан')
+    address = escape(item.get('address', 'Адрес не указан'))
     full_url = f'https://www.madlan.co.il/listings/{listing_id}'
     price = format_price(item.get('price', 0))
-    rooms = item.get('beds', '—')
-    area = item.get('area', '—')
-    floor = item.get('floor', '—')
+    rooms = escape(str(item.get('beds', '—')))
+    area = escape(str(item.get('area', '—')))
+    floor = escape(str(item.get('floor', '—')))
 
     caption = f'<b>{address}</b>\n' \
               f'💰 Цена: {price} ₪\n' \
@@ -191,13 +193,14 @@ def build_message_and_photo(item):
     if images:
         img = images[0].get('imageUrl', '')
         if img:
+            # Убираем возможный начальный слеш, чтобы избежать двойных слешей
+            img = img.lstrip('/')
             if img.startswith('bulletins/') or img.startswith('/bulletins/'):
                 photo_url = f'https://images2.madlan.co.il/{img}'
             elif img.startswith('http'):
                 photo_url = img
             else:
-                # Пытаемся собрать полный URL
-                photo_url = f'https://images2.madlan.co.il/{img}' if not img.startswith('http') else img
+                photo_url = f'https://images2.madlan.co.il/{img}'
 
     return caption, photo_url, listing_id
 
@@ -218,6 +221,7 @@ def main():
     sent_ids = load_sent_ids()
     items = fetch_madlan_listings()
 
+    # Фильтрация
     filtered = []
     for item in items:
         price = item.get('price')
@@ -234,30 +238,44 @@ def main():
 
     logger.info(f'После фильтрации осталось {len(filtered)} объявлений.')
 
-    new_found = 0
+    success_send = 0
+    error_send = 0
+
     for item in filtered:
-        caption, photo_url, lid = build_message_and_photo(item)
-        if lid in sent_ids:
-            continue
+        try:
+            caption, photo_url, lid = build_message_and_photo(item)
+            if lid in sent_ids:
+                continue
 
-        # Пытаемся отправить фото
-        if photo_url:
-            success = tg_send_photo(photo_url, caption)
-            if not success:
-                # Если фото не отправилось, отправляем просто текст
-                tg_send_message(caption)
-        else:
-            tg_send_message(caption)
+            sent = False
+            if photo_url:
+                sent = tg_send_photo(photo_url, caption)
+            if not sent:
+                sent = tg_send_message(caption)
 
-        sent_ids.add(lid)
-        new_found += 1
+            if sent:
+                sent_ids.add(lid)
+                success_send += 1
+            else:
+                error_send += 1
+        except Exception as e:
+            logger.error(f'Не удалось обработать объявление: {e}')
+            error_send += 1
         time.sleep(1.5)
 
-    if new_found == 0:
-        tg_send_message('ℹ️ На данный момент новых квартир нет.')
+    # Сохраняем кеш только если была хотя бы одна успешная отправка
+    if success_send > 0:
+        save_sent_ids(sent_ids)
 
-    save_sent_ids(sent_ids)
-    logger.info(f'===== Завершено. Отправлено {new_found} новых объявлений. =====')
+    # Итоговый отчёт
+    report = f'📊 <b>Отчёт Madlan-бота</b>\n' \
+             f'Найдено: {len(items)}\n' \
+             f'После фильтров: {len(filtered)}\n' \
+             f'Отправлено: {success_send}\n' \
+             f'Ошибок: {error_send}'
+    tg_send_message(report)
+
+    logger.info(f'===== Завершено. Отправлено {success_send} новых объявлений. =====')
 
 if __name__ == '__main__':
     main()
