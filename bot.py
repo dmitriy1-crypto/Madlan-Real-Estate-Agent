@@ -96,6 +96,7 @@ def tg_send_photo(chat_id, photo_url, caption):
         logger.error(f'Ошибка отправки фото ({chat_id}): {e}')
         return False
 
+# ========== НОВАЯ ФУНКЦИЯ С ПАГИНАЦИЕЙ ==========
 def fetch_madlan_listings():
     # Определяем список зон: если задан "areas" – используем его,
     # иначе берём одиночный "area" (старый стиль).
@@ -126,6 +127,7 @@ def fetch_madlan_listings():
                 'render_js': False,
                 'premium_proxy': True,
                 'country_code': 'il',
+                'cache': 'false',          # <-- не использовать кеш ScrapingBee
             }
             try:
                 resp = requests.get(api_url, params=query, timeout=30)
@@ -190,6 +192,7 @@ def fetch_madlan_listings():
 
     logger.info(f'Найдено {len(listings)} частных объявлений после фильтрации.')
     return listings
+# ==============================================
 
 def load_sent_ids():
     try:
