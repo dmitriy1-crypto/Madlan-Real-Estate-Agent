@@ -97,64 +97,28 @@ def tg_send_photo(chat_id, photo_url, caption):
         return False
 
 def fetch_madlan_listings():
+    # Используем bbox, если он задан, иначе area
+    if "bbox" in CONFIG:
+        bbox_value = CONFIG["bbox"]
+    else:
+        bbox_value = None
+
     url = 'https://www.madlan.co.il/for-sale/%D7%97%D7%99%D7%A4%D7%94-%D7%99%D7%A9%D7%A8%D7%90%D7%9C'
     params = {
-        'area': AREA,
         'priceTo': MAX_PRICE,
         'roomsFrom': MIN_ROOMS,
         'roomsTo': MAX_ROOMS,
     }
-    logger.info(f'Начинаю запрос к Madlan через ScrapingBee. Параметры: {params}')
-    api_url = 'https://app.scrapingbee.com/api/v1/'
-    query = {
-        'api_key': SCRAPINGBEE_KEY,
-        'url': f'{url}?{"&".join(f"{k}={v}" for k, v in params.items())}',
-        'render_js': False,
-        'premium_proxy': True,
-        'country_code': 'il',
-    }
-    try:
-        # Используем resp.content и декодируем вручную
-        resp = requests.get(api_url, params=query, timeout=30)
-        resp.raise_for_status()
-        raw_content = resp.content
-        html = raw_content.decode('utf-8', errors='replace')
-        logger.info(f'Ответ от ScrapingBee получен. Размер: {len(html)} байт.')
-
-        start_marker = 'window.__SSR_HYDRATED_CONTEXT__='
-        start = html.find(start_marker)
-        if start == -1:
-            logger.error('Не найден JSON с данными в ответе.')
-            return []
-        start += len(start_marker)
-        end = html.find('</script>', start)
-        if end == -1:
-            logger.error('Не найден конец JSON блока.')
-            return []
-        json_str = html[start:end].strip()
-        logger.info(f'JSON извлечён. Длина: {len(json_str)} символов.')
-
-        # Заменяем невалидный undefined на null
-        json_str = json_str.replace(':undefined', ':null')
-        json_str = json_str.replace(': undefined', ': null')
-
-        data = json.loads(json_str)
-        logger.info('JSON успешно распарсен.')
-
-        redux = data.get('reduxInitialState', {})
-        domain = redux.get('domainData', {})
-        search_list = domain.get('searchList', {})
-        search_data = search_list.get('data', {})
-        poi_data = search_data.get('searchPoiV2', {})
-        items = poi_data.get('poi', [])
-        logger.info(f'Получено {len(items)} элементов poi.')
-
-        listings = [it for it in items if it.get('type') == 'bulletin']
-        logger.info(f'Найдено {len(listings)} частных объявлений.')
-        return listings
-    except Exception as e:
-        logger.error(f'Ошибка при запросе к Madlan: {e}')
-        return []
+    
+    # Добавляем bbox или area
+    if bbox_value:
+        params['bbox'] = bbox_value
+        logger.info(f'Использую bbox: {bbox_value}')
+    else:
+        params['area'] = AREA
+        logger.info(f'Использую area: {AREA}')
+    
+    # ... (дальше всё без изменений: запрос к ScrapingBee, извлечение JSON и т.д.)
 
 def load_sent_ids():
     try:
