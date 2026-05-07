@@ -106,71 +106,60 @@ def fetch_madlan_listings():
         areas = [AREA]
 
     all_items = []
-    page_size = 50          # максимум, который отдаёт Madlan за один запрос
-    max_pages = 5           # ограничение числа страниц на одну зону
 
     for area_code in areas:
-        offset = 0
-        for page in range(max_pages):
-            url = 'https://www.madlan.co.il/for-sale/%D7%97%D7%99%D7%A4%D7%94-%D7%99%D7%A9%D7%A8%D7%90%D7%9C'
-         params = {
-    'area': area_code,
-    'sort': 'date_desc',
-    # pageSize и bulletinsOffset убраны – API Madlan не поддерживает такую пагинацию
-}
-            logger.info(f'Запрашиваю area={area_code}, offset={offset}')
-            api_url = 'https://app.scrapingbee.com/api/v1/'
-            query = {
-                'api_key': SCRAPINGBEE_KEY,
-                'url': f'{url}?{"&".join(f"{k}={v}" for k, v in params.items())}',
-                'render_js': False,
-                'premium_proxy': True,
-                'country_code': 'il',
-                'cache': 'false',          # <-- не использовать кеш ScrapingBee
-            }
-            try:
-                resp = requests.get(api_url, params=query, timeout=30)
-                resp.raise_for_status()
-                raw_content = resp.content
-                html = raw_content.decode('utf-8', errors='replace')
-                
-                start_marker = 'window.__SSR_HYDRATED_CONTEXT__='
-                start = html.find(start_marker)
-                if start == -1:
-                    logger.error(f'JSON не найден для area={area_code}, offset={offset}')
-                    break
-                start += len(start_marker)
-                end = html.find('</script>', start)
-                if end == -1:
-                    logger.error(f'Конец JSON не найден для area={area_code}, offset={offset}')
-                    break
-                json_str = html[start:end].strip()
-                json_str = json_str.replace(':undefined', ':null').replace(': undefined', ': null')
-                data = json.loads(json_str)
+        url = 'https://www.madlan.co.il/for-sale/%D7%97%D7%99%D7%A4%D7%94-%D7%99%D7%A9%D7%A8%D7%90%D7%9C'
+        params = {
+            'area': area_code,
+            'sort': 'date_desc',
+        }
+        logger.info(f'Запрашиваю area={area_code}')
+        api_url = 'https://app.scrapingbee.com/api/v1/'
+        query = {
+            'api_key': SCRAPINGBEE_KEY,
+            'url': f'{url}?{"&".join(f"{k}={v}" for k, v in params.items())}',
+            'render_js': False,
+            'premium_proxy': True,
+            'country_code': 'il',
+        }
+        try:
+            resp = requests.get(api_url, params=query, timeout=30)
+            resp.raise_for_status()
+            raw_content = resp.content
+            html = raw_content.decode('utf-8', errors='replace')
+            
+            start_marker = 'window.__SSR_HYDRATED_CONTEXT__='
+            start = html.find(start_marker)
+            if start == -1:
+                logger.error(f'JSON не найден для area={area_code}')
+                continue
+            start += len(start_marker)
+            end = html.find('</script>', start)
+            if end == -1:
+                logger.error(f'Конец JSON не найден для area={area_code}')
+                continue
+            json_str = html[start:end].strip()
+            json_str = json_str.replace(':undefined', ':null').replace(': undefined', ': null')
+            data = json.loads(json_str)
 
-                redux = data.get('reduxInitialState', {})
-                domain = redux.get('domainData', {})
-                search_list = domain.get('searchList', {})
-                search_data = search_list.get('data', {})
-                poi_data = search_data.get('searchPoiV2', {})
-                items = poi_data.get('poi', [])
-                
-                logger.info(f'Получено {len(items)} элементов для area={area_code}, offset={offset}')
-                if not items:
-                    break
+            redux = data.get('reduxInitialState', {})
+            domain = redux.get('domainData', {})
+            search_list = domain.get('searchList', {})
+            search_data = search_list.get('data', {})
+            poi_data = search_data.get('searchPoiV2', {})
+            items = poi_data.get('poi', [])
+            
+            logger.info(f'Получено {len(items)} элементов для area={area_code}')
 
-                # Добавляем в общий список, избегая дубликатов по id
-                existing_ids = {it.get('id') for it in all_items}
-                for it in items:
-                    if it.get('id') not in existing_ids:
-                        all_items.append(it)
-                        existing_ids.add(it.get('id'))
-                
-                offset += page_size
-                time.sleep(0.5)
-            except Exception as e:
-                logger.error(f'Ошибка для area={area_code}, offset={offset}: {e}')
-                break
+            # Добавляем в общий список, избегая дубликатов по id
+            existing_ids = {it.get('id') for it in all_items}
+            for it in items:
+                if it.get('id') not in existing_ids:
+                    all_items.append(it)
+                    existing_ids.add(it.get('id'))
+        except Exception as e:
+            logger.error(f'Ошибка для area={area_code}: {e}')
+            continue
 
     # Фильтрация в Python
     listings = []
