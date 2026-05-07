@@ -9,8 +9,7 @@ from datetime import datetime, timezone, timedelta
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN', '').strip()
 SCRAPINGBEE_KEY = os.environ.get('SCRAPINGBEE_KEY', '').strip()
 
-# Поддержка нескольких чатов. Задаётся в секретах GitHub Actions как CHAT_IDS
-# (или CHAT_ID для одного пользователя)
+# Поддержка нескольких чатов
 CHAT_IDS_RAW = os.environ.get('CHAT_IDS', os.environ.get('CHAT_ID', '')).strip()
 CHAT_IDS = [cid.strip() for cid in CHAT_IDS_RAW.split(',') if cid.strip()] if CHAT_IDS_RAW else []
 
@@ -115,23 +114,27 @@ def fetch_madlan_listings():
         'country_code': 'il',
     }
     try:
+        # Используем resp.content и декодируем вручную
         resp = requests.get(api_url, params=query, timeout=30)
         resp.raise_for_status()
-        logger.info(f'Ответ от ScrapingBee получен. Размер: {len(resp.text)} байт.')
+        raw_content = resp.content
+        html = raw_content.decode('utf-8', errors='replace')
+        logger.info(f'Ответ от ScrapingBee получен. Размер: {len(html)} байт.')
 
         start_marker = 'window.__SSR_HYDRATED_CONTEXT__='
-        start = resp.text.find(start_marker)
+        start = html.find(start_marker)
         if start == -1:
             logger.error('Не найден JSON с данными в ответе.')
             return []
         start += len(start_marker)
-        end = resp.text.find('</script>', start)
+        end = html.find('</script>', start)
         if end == -1:
             logger.error('Не найден конец JSON блока.')
             return []
-        json_str = resp.text[start:end].strip()
+        json_str = html[start:end].strip()
         logger.info(f'JSON извлечён. Длина: {len(json_str)} символов.')
 
+        # Заменяем невалидный undefined на null
         json_str = json_str.replace(':undefined', ':null')
         json_str = json_str.replace(': undefined', ': null')
 
@@ -215,11 +218,6 @@ def main():
     if not SCRAPINGBEE_KEY:
         logger.error('SCRAPINGBEE_KEY не задан.')
         return
-
-    # Для теста проверка времени отключена, раскомментируйте для продакшена
-    # if not is_active_hours():
-    #     logger.info('Сейчас неактивное время, завершаю работу.')
-    #     return
 
     # Приветствие всем подписчикам
     for cid in CHAT_IDS:
