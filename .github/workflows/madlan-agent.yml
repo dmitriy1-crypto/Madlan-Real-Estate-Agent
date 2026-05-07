@@ -31,8 +31,8 @@ jobs:
       - name: Run Madlan Agent
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          SCRAPINGBEE_KEY: ${{ secrets.SCRAPINGBEE_KEY }}   # ← добавить эту строку
+          CHAT_IDS: ${{ secrets.CHAT_IDS }}
+          SCRAPINGBEE_KEY: ${{ secrets.SCRAPINGBEE_KEY }}
         run: python bot.py
 
       - name: Save sent_ids cache
