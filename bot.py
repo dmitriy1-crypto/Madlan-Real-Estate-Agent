@@ -29,9 +29,7 @@ def load_config():
     try:
         with open('config.json', 'r', encoding='utf-8') as f:
             config = json.load(f)
-        # Извлекаем только известные параметры
         params = {k: v for k, v in config.items() if k in DEFAULT_CONFIG}
-        # Проверяем, что параметры, ожидающие одно значение, не являются списками
         for single_param in ['area', 'max_price', 'min_rooms', 'max_rooms', 'deal_type']:
             if isinstance(params.get(single_param), list):
                 raise ValueError(f"Параметр {single_param} должен быть одним значением, а не списком")
@@ -214,7 +212,7 @@ def main():
         logger.error('SCRAPINGBEE_KEY не задан.')
         return
 
-    # Для теста можно временно отключить проверку, закомментировав следующие три строки:
+    # Для теста проверка времени отключена, раскомментируйте для продакшена
     # if not is_active_hours():
     #     logger.info('Сейчас неактивное время, завершаю работу.')
     #     return
@@ -271,7 +269,6 @@ def main():
             error_send += 1
         time.sleep(1.5)
 
-    # Сохраняем кеш только если была хотя бы одна успешная отправка
     if success_send > 0:
         save_sent_ids(sent_ids)
 
