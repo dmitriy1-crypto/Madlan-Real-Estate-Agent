@@ -113,12 +113,11 @@ def fetch_madlan_listings():
         offset = 0
         for page in range(max_pages):
             url = 'https://www.madlan.co.il/for-sale/%D7%97%D7%99%D7%A4%D7%94-%D7%99%D7%A9%D7%A8%D7%90%D7%9C'
-            params = {
-                'area': area_code,
-                'pageSize': page_size,
-                'bulletinsOffset': offset,
-                'sort': 'date_desc',
-            }
+         params = {
+    'area': area_code,
+    'sort': 'date_desc',
+    # pageSize и bulletinsOffset убраны – API Madlan не поддерживает такую пагинацию
+}
             logger.info(f'Запрашиваю area={area_code}, offset={offset}')
             api_url = 'https://app.scrapingbee.com/api/v1/'
             query = {
