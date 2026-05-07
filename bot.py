@@ -201,6 +201,10 @@ def build_message_and_photo(item):
             else:
                 photo_url = f'https://images2.madlan.co.il/{img}'
 
+    # Если фото нет – сразу добавляем пометку
+    if not photo_url:
+        caption += '\n📷 <i>Фото не загрузилось</i>'
+
     return caption, photo_url, listing_id
 
 def main():
@@ -255,6 +259,11 @@ def main():
                 if photo_url:
                     if tg_send_photo(cid, photo_url, caption):
                         sent = True
+                    else:
+                        # Фото не отправилось – добавляем пометку и шлём текст
+                        caption_with_note = caption + '\n📷 <i>Фото не загрузилось</i>'
+                        if tg_send_message(cid, caption_with_note):
+                            sent = True
                 else:
                     if tg_send_message(cid, caption):
                         sent = True
